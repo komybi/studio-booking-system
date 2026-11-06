@@ -39,17 +39,6 @@ export default function Page() {
   }, [user])
 
   useEffect(() => {
-    if (user) return
-    const prompt = document.querySelector('.auth-card > p')
-    if (!prompt || prompt.querySelector('a')) return
-    prompt.innerHTML = '<span>First setup?</span> '
-    const link = document.createElement('a')
-    link.href = '/register'
-    link.textContent = 'Create the first administrator'
-    prompt.appendChild(link)
-  }, [user])
-
-  useEffect(() => {
     const roleSelects = Array.from(document.querySelectorAll<HTMLSelectElement>('.booking-form select[name="role"]'))
     if (roleSelects.length < 2) return
     if (!Array.from(roleSelects[0].options).some((option) => option.value === 'admin')) roleSelects[0].add(new Option('Administrator', 'admin'))
