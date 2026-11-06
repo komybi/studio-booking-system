@@ -75,8 +75,6 @@ export async function POST(request: Request) {
     const token = cookieStore.get('studioflow_session')?.value
     const session = token ? await sessions.findOne({ token, expiresAt: { $gt: new Date() } }) : null
     const sessionUser = session ? await users.findOne({ _id: session.userId }) : null
-    const existingAdmin = await users.findOne({ role: 'admin' })
-    if (requestedRole === 'admin' && existingAdmin && sessionUser?.role !== 'admin') return json('Only an administrator can create admin users', 403)
     if (username.length < 3) return json('Username must be 3+ characters')
     if (!email.includes('@')) return json('A valid email is required')
     if (await users.findOne({ username })) return json('Username already exists', 409)
