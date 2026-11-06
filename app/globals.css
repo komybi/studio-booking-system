@@ -249,6 +249,10 @@ body.standard-user-view .side-nav > button:nth-of-type(5),
 body.standard-user-view .side-nav > button:nth-of-type(6),
 body.standard-user-view .side-nav > .nav-label-spaced { display: none; }
 body.standard-user-view .side-nav > button:last-of-type { display: flex !important; }
+.auth-card > p { display: none; }
+.auth-link { display: block; margin-top: 16px; color: #0b78a2; font-size: 13px; font-weight: 700; text-align: center; text-decoration: none; }
+.auth-link:hover { text-decoration: underline; }
+.success-message { color: #176b4d; background: #eaf8f1; }
 .auth-footer { margin: 30px 0 0; text-align: center; color: #7d8b9d; font-size: 17px; }
 .auth-card .switch-copy { color: #6f8192; }
 .auth-card .switch-copy button { color: #087f9b; }
