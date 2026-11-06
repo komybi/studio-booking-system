@@ -52,7 +52,8 @@ export async function POST(request: Request) {
     await sessions.insertOne({ token, userId: user._id, expiresAt: new Date(Date.now() + 1000 * 60 * 60 * 24 * 7) })
     const normalizedRole = String(user.role).trim().toLowerCase().startsWith('admin') ? 'admin' : 'user'
     const response = NextResponse.json({ user: { username: user.username, role: normalizedRole, roleLabel: user.role, name: user.name } })
-    response.cookies.set('studioflow_session', token, { httpOnly: true, sameSite: 'lax', secure: process.env.NODE_ENV === 'production', maxAge: 60 * 60 * 24 * 7, path: '/' })
+    const secureCookie = new URL(request.url).protocol === 'https:'
+    response.cookies.set('studioflow_session', token, { httpOnly: true, sameSite: 'lax', secure: secureCookie, maxAge: 60 * 60 * 24 * 7, path: '/' })
     return response
   }
 
