@@ -18,7 +18,7 @@ export default function RegisterPage() {
       const data = await response.json().catch(() => ({}))
       if (!response.ok) return setMessage(data.message || `Registration failed (${response.status}).`)
       setSuccess(true)
-      setMessage(data.emailSent ? 'Account created. Login details were sent by email.' : data.temporaryPassword ? `Account created. Temporary password: ${data.temporaryPassword}` : 'Account created successfully.')
+      setMessage(data.emailSent ? 'Account created. Login details were sent by email.' : data.emailError ? `Account created, but email delivery failed: ${data.emailError}` : data.temporaryPassword ? `Account created. Temporary password: ${data.temporaryPassword}` : 'Account created successfully.')
       setForm({ name: '', username: '', email: '', password: '', role: 'admin' })
     } catch {
       setMessage('Unable to reach the server. Please try again.')

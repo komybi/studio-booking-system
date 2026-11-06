@@ -85,7 +85,8 @@ const suppliedPassword = String(body.password ?? '')
   const salt = randomUUID()
   await users.insertOne({ username, email, name, role: requestedRole, salt, passwordHash: hash(temporaryPassword, salt), mustChangePassword: suppliedPassword.length < 8, createdAt: new Date() })
     let emailSent = false
-    if (sessionUser?.role === 'admin' && smtpConfigured()) {
+    let emailError = ''
+    if (smtpConfigured()) {
       const transporter = nodemailer.createTransport({ host: process.env.SMTP_HOST, port: Number(process.env.SMTP_PORT || 587), secure: Number(process.env.SMTP_PORT) === 465, auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASSWORD } })
       try {
         await transporter.sendMail({
@@ -98,9 +99,10 @@ const suppliedPassword = String(body.password ?? '')
         emailSent = true
       } catch (error) {
         console.error('[v0] New user email failed', error)
+        emailError = error instanceof Error ? error.message : 'SMTP delivery failed'
       }
     }
-    return NextResponse.json({ ok: true, emailSent, ...(!emailSent && suppliedPassword.length < 8 ? { temporaryPassword } : {}) })
+    return NextResponse.json({ ok: true, emailSent, ...(emailError ? { emailError } : {}), ...(!emailSent && suppliedPassword.length < 8 ? { temporaryPassword } : {}) })
   }
 
   if (action === 'change-password') {
