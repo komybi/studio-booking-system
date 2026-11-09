@@ -1,5 +1,6 @@
 import nodemailer from 'nodemailer'
 import { getMailFrom } from '@/lib/mail'
+import { sendTelegramMessage, telegramConfigured } from '@/lib/telegram'
 
 type Database = Awaited<ReturnType<typeof import('@/lib/db').getDb>>
 
@@ -34,12 +35,15 @@ export async function publishBookingNotification(db: Database, input: Notificati
         createdAt: new Date(),
         read: false,
         emailStatus: 'queued',
+        telegramStatus: 'queued',
       })
     } catch (error) {
       if (!(error && typeof error === 'object' && 'code' in error && error.code === 11000)) throw error
     }
     notification = await notifications.findOne({ dedupeKey })
   }
+
+  if (notification) await deliverTelegram(db, dedupeKey, input)
 
   if (!notification || notification.emailStatus !== 'queued') return { created: Boolean(notification), emailStatus: notification?.emailStatus ?? 'unknown' }
   if (!input.email || !process.env.SMTP_HOST || !process.env.SMTP_USER || !process.env.SMTP_PASSWORD || !process.env.MAIL_FROM) {
@@ -74,5 +78,23 @@ export async function publishBookingNotification(db: Database, input: Notificati
     console.error('[booking-notifications] Email delivery failed', error)
     await notifications.updateOne({ dedupeKey, emailStatus: 'sending' }, { $set: { emailStatus: 'failed', emailFailedAt: new Date() } })
     return { created: true, emailStatus: 'failed' }
+  }
+}
+
+async function deliverTelegram(db: Database, dedupeKey: string, input: NotificationInput) {
+  const notifications = db.collection('notifications')
+  const recipient = telegramConfigured() ? await db.collection('users').findOne({ username: input.recipientUsername }, { projection: { telegramChatId: 1 } }) : null
+  if (!recipient?.telegramChatId) {
+    await notifications.updateOne({ dedupeKey, telegramStatus: 'queued' }, { $set: { telegramStatus: 'skipped' } })
+    return
+  }
+  const claim = await notifications.updateOne({ dedupeKey, telegramStatus: 'queued' }, { $set: { telegramStatus: 'sending' } })
+  if (!claim.modifiedCount) return
+  try {
+    await sendTelegramMessage(recipient.telegramChatId, `${input.title}\n\n${input.message}`)
+    await notifications.updateOne({ dedupeKey, telegramStatus: 'sending' }, { $set: { telegramStatus: 'sent', telegramSentAt: new Date() } })
+  } catch (error) {
+    console.error('[booking-notifications] Telegram delivery failed', error)
+    await notifications.updateOne({ dedupeKey, telegramStatus: 'sending' }, { $set: { telegramStatus: 'failed', telegramFailedAt: new Date() } })
   }
 }
