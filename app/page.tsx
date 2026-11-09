@@ -85,6 +85,10 @@ export default function Page() {
   }, [mobileMenuOpen])
 
   useEffect(() => {
+    window.scrollTo({ top: 0 })
+  }, [active])
+
+  useEffect(() => {
     const bookingId = new URLSearchParams(window.location.search).get('booking')
     if (bookingId) {
       setHighlightedBookingId(bookingId)
