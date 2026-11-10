@@ -439,3 +439,19 @@ body.standard-user-view .side-nav > button:last-of-type { display: flex !importa
   .booking-filters { display: grid; grid-template-columns: 1fr 1fr; }
   .booking-filters select { min-width: 0; width: 100%; }
 }
+
+.overview-status-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-bottom: 18px; }
+.metric-icon.green { color: #228e6b; background: #eaf8f1; }
+.metric-icon.amber { color: #c68539; background: #fff5e6; }
+.metric-icon.red { color: #ca6b5c; background: #fff0ed; }
+.monthly-report { display: grid; gap: 18px; }
+.report-toolbar, .report-month-picker { display: flex; align-items: center; gap: 12px; }
+.report-toolbar { justify-content: space-between; }
+.report-month-picker strong { min-width: 140px; text-align: center; color: var(--navy); font-size: 14px; }
+.monthly-request-list { display: grid; gap: 10px; }
+
+@media (max-width: 700px) {
+  .overview-status-grid { grid-template-columns: 1fr; }
+  .report-toolbar { align-items: stretch; flex-direction: column; }
+  .report-toolbar > button { justify-content: center; }
+}
