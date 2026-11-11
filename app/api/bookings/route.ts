@@ -112,28 +112,32 @@ async function conflictResponse(
   }
 }
 
-export async function GET() {
-  const user = await currentUser()
-  if (!user) return NextResponse.json({ message: 'Login required' }, { status: 401 })
-  const db = await getDb()
-  await ensureReservationIndex(db)
-  const records = await db.collection('bookings').find({}).sort({ createdAt: -1 }).limit(300).toArray()
-  const bookings = records.filter((booking) => booking.recordType !== 'maintenance')
-  const maintenance = records.filter((booking) => booking.recordType === 'maintenance')
-  const serialize = (records: Record<string, any>[]) => records.map(({ _id, ...record }) => ({ id: String(_id), ...record }))
-  return NextResponse.json({ bookings: serialize(bookings), maintenance: serialize(maintenance) })
+type BookingDetails = {
+  title: string
+  department: string
+  date: string
+  startTime: string
+  endTime: string
+  priority: 'Urgent' | 'Standard'
+  urgencyReason: string
+  studio: string
+  responsiblePerson: string
+  responsibleEmail: string
+  phoneNumber: string
+  guest: string
+  presenterName: string
+  presenterPhone: string
+  broadcastType: string
+  equipment: string
+  notes: string
 }
 
-export async function POST(request: Request) {
-  const user = await currentUser()
-  if (!user) return NextResponse.json({ message: 'Login required' }, { status: 401 })
-  const body = await request.json().catch(() => null)
-  if (!body || typeof body !== 'object') return NextResponse.json({ message: 'Invalid booking request' }, { status: 400 })
-
-  const db = await getDb()
-  await ensureReservationIndex(db)
+function parseBookingDetails(body: Record<string, unknown>):
+  | { booking: BookingDetails; start: number; end: number }
+  | { error: string } {
   const priority = body.priority === 'Urgent' ? 'Urgent' : body.priority === 'Standard' ? 'Standard' : ''
-  const booking = {
+  if (!priority) return { error: 'Complete all required booking fields with a valid date, time, priority, and studio' }
+  const booking: BookingDetails = {
     title: String(body.title ?? '').trim(),
     department: String(body.department ?? '').trim(),
     date: String(body.date ?? ''),
@@ -151,6 +155,49 @@ export async function POST(request: Request) {
     broadcastType: String(body.broadcastType ?? '').trim(),
     equipment: String(body.equipment ?? '').trim(),
     notes: String(body.notes ?? '').trim(),
+  }
+  const start = timeInMinutes(booking.startTime)
+  const end = timeInMinutes(booking.endTime)
+  const parsedDate = /^\d{4}-\d{2}-\d{2}$/.test(booking.date) ? new Date(`${booking.date}T00:00:00.000Z`) : null
+  if (!booking.title || !booking.department || !booking.date || start === null || end === null || !booking.studio || !booking.responsiblePerson || !booking.phoneNumber) {
+    return { error: 'Complete all required booking fields with a valid date, time, priority, and studio' }
+  }
+  if (priority === 'Urgent' && !booking.urgencyReason) return { error: 'A reason is required for urgent bookings' }
+  if (booking.responsibleEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(booking.responsibleEmail)) {
+    return { error: 'Enter a valid responsible person email address' }
+  }
+  if (!parsedDate || Number.isNaN(parsedDate.getTime()) || parsedDate.toISOString().slice(0, 10) !== booking.date || end <= start) {
+    return { error: 'Enter a valid booking date and an end time after the start time' }
+  }
+  if (!studioNames.includes(booking.studio)) return { error: 'Choose a valid studio' }
+  return { booking, start, end }
+}
+
+export async function GET() {
+  const user = await currentUser()
+  if (!user) return NextResponse.json({ message: 'Login required' }, { status: 401 })
+  const db = await getDb()
+  await ensureReservationIndex(db)
+  const records = await db.collection('bookings').find({}).sort({ createdAt: -1 }).limit(300).toArray()
+  const bookings = records.filter((booking) => booking.recordType !== 'maintenance')
+  const maintenance = records.filter((booking) => booking.recordType === 'maintenance')
+  const serialize = (records: Record<string, any>[]) => records.map(({ _id, ...record }) => ({ id: String(_id), ...record }))
+  return NextResponse.json({ bookings: serialize(bookings), maintenance: serialize(maintenance) })
+}
+
+export async function POST(request: Request) {
+  const user = await currentUser()
+  if (!user) return NextResponse.json({ message: 'Login required' }, { status: 401 })
+  const body = await request.json().catch(() => null)
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return NextResponse.json({ message: 'Invalid booking request' }, { status: 400 })
+  const parsed = parseBookingDetails(body)
+  if ('error' in parsed) return NextResponse.json({ message: parsed.error }, { status: 400 })
+  const { booking: details, start, end } = parsed
+  const priority = details.priority
+  const db = await getDb()
+  await ensureReservationIndex(db)
+  const booking = {
+    ...details,
     status: 'Pending',
     requestedBy: user.username,
     requesterName: user.name,
@@ -159,22 +206,6 @@ export async function POST(request: Request) {
     createdAt: new Date(),
     reservationSlots: [] as string[],
   }
-  const start = timeInMinutes(booking.startTime)
-  const end = timeInMinutes(booking.endTime)
-  const parsedDate = /^\d{4}-\d{2}-\d{2}$/.test(booking.date) ? new Date(`${booking.date}T00:00:00.000Z`) : null
-  if (!booking.title || !booking.department || !booking.date || start === null || end === null || !booking.studio || !booking.responsiblePerson || !booking.phoneNumber || !priority) {
-    return NextResponse.json({ message: 'Complete all required booking fields with a valid date, time, priority, and studio' }, { status: 400 })
-  }
-  if (priority === 'Urgent' && !booking.urgencyReason) {
-    return NextResponse.json({ message: 'A reason is required for urgent bookings' }, { status: 400 })
-  }
-  if (booking.responsibleEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(booking.responsibleEmail)) {
-    return NextResponse.json({ message: 'Enter a valid responsible person email address' }, { status: 400 })
-  }
-  if (!parsedDate || Number.isNaN(parsedDate.getTime()) || parsedDate.toISOString().slice(0, 10) !== booking.date || end <= start) {
-    return NextResponse.json({ message: 'Enter a valid booking date and an end time after the start time' }, { status: 400 })
-  }
-  if (!studioNames.includes(booking.studio)) return NextResponse.json({ message: 'Choose a valid studio' }, { status: 400 })
 
   const sameDayBookings = await db.collection('bookings').find({ date: booking.date }).toArray() as ScheduledBooking[]
   const conflict = await conflictResponse(sameDayBookings, booking, start, end)
@@ -223,8 +254,65 @@ export async function PATCH(request: Request) {
   if (!user) return NextResponse.json({ message: 'Please log in first' }, { status: 401 })
   if (!isAdmin(user)) return NextResponse.json({ message: 'Administrator approval required' }, { status: 403 })
   const body = await request.json().catch(() => null)
-  if (!body || typeof body.id !== 'string' || !ObjectId.isValid(body.id) || !['Approved', 'Rejected'].includes(body.status)) {
-    return NextResponse.json({ message: 'A valid booking id and decision are required' }, { status: 400 })
+  if (!body || typeof body !== 'object' || Array.isArray(body) || typeof body.id !== 'string' || !ObjectId.isValid(body.id)) {
+    return NextResponse.json({ message: 'A valid booking id is required' }, { status: 400 })
+  }
+
+  if (body.action === 'edit') {
+    const parsed = parseBookingDetails(body)
+    if ('error' in parsed) return NextResponse.json({ message: parsed.error }, { status: 400 })
+    const db = await getDb()
+    await ensureReservationIndex(db)
+    const id = new ObjectId(body.id)
+    const bookings = db.collection('bookings')
+    const existing = await bookings.findOne({ _id: id, recordType: { $ne: 'maintenance' } })
+    if (!existing) return NextResponse.json({ message: 'Booking not found' }, { status: 404 })
+
+    const conflict = await conflictResponse(
+      await bookings.find({ date: parsed.booking.date }).toArray() as ScheduledBooking[],
+      parsed.booking,
+      parsed.start,
+      parsed.end,
+      body.id,
+    )
+    if (conflict) return NextResponse.json(conflict, { status: 409 })
+
+    const update = {
+      ...parsed.booking,
+      reservationSlots: reservationSlots(parsed.booking.date, parsed.booking.studio, parsed.start, parsed.end),
+      updatedAt: new Date(),
+    }
+    try {
+      const result = await bookings.updateOne(
+        { _id: id, recordType: { $ne: 'maintenance' }, status: existing.status },
+        { $set: update },
+      )
+      if (!result.matchedCount) return NextResponse.json({ message: 'This booking changed while you were editing it. Refresh and try again.' }, { status: 409 })
+    } catch (error) {
+      if (!(error && typeof error === 'object' && 'code' in error && error.code === 11000)) throw error
+      const latestConflict = await conflictResponse(
+        await bookings.find({ date: parsed.booking.date }).toArray() as ScheduledBooking[],
+        parsed.booking,
+        parsed.start,
+        parsed.end,
+        body.id,
+      )
+      return NextResponse.json(latestConflict ?? { message: 'This studio time was just reserved. Please choose another time or studio.' }, { status: 409 })
+    }
+
+    const changedFields = Object.keys(parsed.booking).filter((key) => existing[key] !== parsed.booking[key as keyof BookingDetails])
+    await db.collection('bookingAudit').insertOne({
+      bookingId: body.id,
+      action: 'edited',
+      actor: user.username,
+      changedFields,
+      at: new Date(),
+    })
+    return NextResponse.json({ ok: true, booking: { id: body.id, ...existing, ...update } })
+  }
+
+  if (!['Approved', 'Rejected'].includes(body.status)) {
+    return NextResponse.json({ message: 'A booking decision is required' }, { status: 400 })
   }
 
   const db = await getDb()
