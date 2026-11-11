@@ -34,6 +34,11 @@ export function isStudioAdmin(role: unknown): boolean {
   return normalizeAppRole(role) === 'studio_admin'
 }
 
+export function canCreateBookingRequest(role: unknown): boolean {
+  const normalized = normalizeAppRole(role)
+  return normalized === 'studio_admin' || normalized === 'department_head'
+}
+
 export function canViewAllBookings(role: unknown): boolean {
   const normalized = normalizeAppRole(role)
   return normalized === 'admin' || normalized === 'studio_admin'

@@ -4,7 +4,7 @@ import { ObjectId } from 'mongodb'
 import { getDb } from '@/lib/db'
 import { ensureReservationIndex, findNextAvailableTime, getAvailableStudios, getReservationConflicts, reservationSlots, studioCNewsReservations, studioNames, timeInMinutes, type ScheduledBooking } from '@/lib/bookingAvailability'
 import { publishBookingNotification } from '@/lib/bookingNotifications'
-import { appRoleLabel, canViewAllBookings, canViewCalendar, isStudioAdmin } from '@/lib/userRoles'
+import { appRoleLabel, canCreateBookingRequest, canViewAllBookings, canViewCalendar, isStudioAdmin } from '@/lib/userRoles'
 
 async function currentUser() {
   const token = (await cookies()).get('studioflow_session')?.value
@@ -195,7 +195,7 @@ export async function GET() {
 export async function POST(request: Request) {
   const user = await currentUser()
   if (!user) return NextResponse.json({ message: 'Login required' }, { status: 401 })
-  if (!isStudioAdmin(user.role)) return NextResponse.json({ message: 'Only Studio Admins can create booking requests' }, { status: 403 })
+  if (!canCreateBookingRequest(user.role)) return NextResponse.json({ message: 'Only Studio Admins and Department Heads can create booking requests' }, { status: 403 })
   const body = await request.json().catch(() => null)
   if (!body || typeof body !== 'object' || Array.isArray(body)) return NextResponse.json({ message: 'Invalid booking request' }, { status: 400 })
   const parsed = parseBookingDetails({
