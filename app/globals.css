@@ -411,6 +411,13 @@ body.standard-user-view .side-nav > button:last-of-type { display: flex !importa
 .urgent-booking-row { background: #fff9f7; }
 .highlighted-booking-row { outline: 2px solid #159a9c; outline-offset: -2px; }
 .review-actions { display: flex; gap: 5px; margin-top: 6px; }
+.admin-dashboard-grid { grid-template-columns: minmax(0, 1fr); }
+.approval-queue-panel { margin-top: 18px; padding: 21px; border: 1px solid var(--line); border-radius: 14px; background: #fff; }
+.approval-queue-panel .approval-list { margin-top: 14px; }
+.approval-queue-panel .approval-item { flex-wrap: wrap; }
+.approval-queue-panel .approval-copy { min-width: 180px; }
+.approval-queue-actions { flex: 0 0 auto; margin-top: 0; }
+.approval-queue-actions .approve-button, .approval-queue-actions .reject-button { display: inline-flex; align-items: center; justify-content: center; gap: 5px; width: auto; height: 32px; padding: 0 10px; font-size: 11px; font-weight: 700; cursor: pointer; }
 .maintenance-panel { margin-top: 18px; padding: 20px; border: 1px solid var(--line); border-radius: 14px; background: #fff; }
 .maintenance-panel .section-heading { margin-bottom: 14px; }
 .maintenance-form { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: end; gap: 12px; }
@@ -435,7 +442,10 @@ body.standard-user-view .side-nav > button:last-of-type { display: flex !importa
   .maintenance-form { grid-template-columns: 1fr; }
   .maintenance-form > button { grid-column: auto; }
   .maintenance-panel { padding: 14px; }
+  .approval-queue-panel { padding: 14px; }
   .maintenance-list > div { align-items: flex-start; }
+  .approval-queue-actions { width: 100%; margin-left: 37px; }
+  .approval-queue-actions button { flex: 1; }
   .booking-filters { display: grid; grid-template-columns: 1fr 1fr; }
   .booking-filters select { min-width: 0; width: 100%; }
 }
