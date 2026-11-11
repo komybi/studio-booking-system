@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
 import { getDb } from '@/lib/db'
 import { findNextAvailableTime, getAvailableStudios, getReservationConflicts, reservationSlots, studioNames, timeInMinutes, type ScheduledBooking } from '@/lib/bookingAvailability'
+import { isStudioAdmin } from '@/lib/userRoles'
 
 async function currentUser() {
   const token = (await cookies()).get('studioflow_session')?.value
@@ -13,9 +14,8 @@ async function currentUser() {
 
 export async function GET(request: Request) {
   const user = await currentUser()
-  if (!user || typeof user.role !== 'string' || !user.role.toLowerCase().startsWith('admin')) {
-    return NextResponse.json({ message: 'Administrator access required' }, { status: 403 })
-  }
+  if (!user) return NextResponse.json({ message: 'Login required' }, { status: 401 })
+  if (!isStudioAdmin(user.role)) return NextResponse.json({ message: 'Studio Admin access required' }, { status: 403 })
   const url = new URL(request.url)
   const date = url.searchParams.get('date') ?? ''
   const startTime = url.searchParams.get('startTime') ?? ''

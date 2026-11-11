@@ -4,6 +4,7 @@ import { ObjectId } from 'mongodb'
 import { getDb } from '@/lib/db'
 import { ensureReservationIndex, findNextAvailableTime, getAvailableStudios, getReservationConflicts, reservationSlots, studioNames, timeInMinutes, type ScheduledBooking } from '@/lib/bookingAvailability'
 import { publishBookingNotification } from '@/lib/bookingNotifications'
+import { canViewAllBookings, canViewCalendar, isStudioAdmin } from '@/lib/userRoles'
 
 async function currentUser() {
   const token = (await cookies()).get('studioflow_session')?.value
@@ -11,10 +12,6 @@ async function currentUser() {
   const db = await getDb()
   const session = await db.collection('sessions').findOne({ token, expiresAt: { $gt: new Date() } })
   return session ? db.collection('users').findOne({ _id: session.userId }) : null
-}
-
-function isAdmin(user: Record<string, unknown>) {
-  return typeof user.role === 'string' && user.role.toLowerCase().startsWith('admin')
 }
 
 function bookingSummary(booking: ScheduledBooking & Record<string, unknown>) {
@@ -32,7 +29,7 @@ function bookingSummary(booking: ScheduledBooking & Record<string, unknown>) {
 async function notifyAdmins(db: Awaited<ReturnType<typeof getDb>>, booking: Record<string, any>, bookingId: string, url: URL) {
   const users = await db.collection('users').find({}, { projection: { username: 1, name: 1, email: 1, role: 1 } }).toArray()
   const admins = users.filter((candidate) =>
-    typeof candidate.role === 'string' && candidate.role.toLowerCase().startsWith('admin') && typeof candidate.username === 'string',
+    isStudioAdmin(candidate.role) && typeof candidate.username === 'string',
   )
   const responsible = users.find((candidate) =>
     typeof candidate.username === 'string'
@@ -178,16 +175,19 @@ export async function GET() {
   if (!user) return NextResponse.json({ message: 'Login required' }, { status: 401 })
   const db = await getDb()
   await ensureReservationIndex(db)
-  const records = await db.collection('bookings').find({}).sort({ createdAt: -1 }).limit(300).toArray()
-  const bookings = records.filter((booking) => booking.recordType !== 'maintenance')
-  const maintenance = records.filter((booking) => booking.recordType === 'maintenance')
+  const filter = canViewAllBookings(user.role) ? {} : { requestedBy: user.username }
+  const records = await db.collection('bookings').find({ ...filter, recordType: { $ne: 'maintenance' } }).sort({ createdAt: -1 }).limit(300).toArray()
+  const maintenance = canViewCalendar(user.role)
+    ? await db.collection('bookings').find({ recordType: 'maintenance' }).sort({ date: 1 }).limit(300).toArray()
+    : []
   const serialize = (records: Record<string, any>[]) => records.map(({ _id, ...record }) => ({ id: String(_id), ...record }))
-  return NextResponse.json({ bookings: serialize(bookings), maintenance: serialize(maintenance) })
+  return NextResponse.json({ bookings: serialize(records), maintenance: serialize(maintenance) })
 }
 
 export async function POST(request: Request) {
   const user = await currentUser()
   if (!user) return NextResponse.json({ message: 'Login required' }, { status: 401 })
+  if (!isStudioAdmin(user.role)) return NextResponse.json({ message: 'Only Studio Admins can create booking requests' }, { status: 403 })
   const body = await request.json().catch(() => null)
   if (!body || typeof body !== 'object' || Array.isArray(body)) return NextResponse.json({ message: 'Invalid booking request' }, { status: 400 })
   const parsed = parseBookingDetails(body)
@@ -252,6 +252,7 @@ export async function POST(request: Request) {
 export async function PATCH(request: Request) {
   const user = await currentUser()
   if (!user) return NextResponse.json({ message: 'Please log in first' }, { status: 401 })
+  if (!isStudioAdmin(user.role)) return NextResponse.json({ message: 'Studio Admin access required' }, { status: 403 })
   const body = await request.json().catch(() => null)
   if (!body || typeof body !== 'object' || Array.isArray(body) || typeof body.id !== 'string' || !ObjectId.isValid(body.id)) {
     return NextResponse.json({ message: 'A valid booking id is required' }, { status: 400 })
@@ -266,10 +267,6 @@ export async function PATCH(request: Request) {
     const bookings = db.collection('bookings')
     const existing = await bookings.findOne({ _id: id, recordType: { $ne: 'maintenance' } })
     if (!existing) return NextResponse.json({ message: 'Booking not found' }, { status: 404 })
-    if (!isAdmin(user) && (existing.requestedBy !== user.username || existing.status !== 'Pending')) {
-      return NextResponse.json({ message: 'You can only edit your own pending booking requests' }, { status: 403 })
-    }
-
     const conflict = await conflictResponse(
       await bookings.find({ date: parsed.booking.date }).toArray() as ScheduledBooking[],
       parsed.booking,
@@ -289,8 +286,7 @@ export async function PATCH(request: Request) {
         {
           _id: id,
           recordType: { $ne: 'maintenance' },
-          status: isAdmin(user) ? existing.status : 'Pending',
-          ...(!isAdmin(user) ? { requestedBy: user.username } : {}),
+          status: existing.status,
         },
         { $set: update },
       )
@@ -318,7 +314,6 @@ export async function PATCH(request: Request) {
     return NextResponse.json({ ok: true, booking: { id: body.id, ...existing, ...update } })
   }
 
-  if (!isAdmin(user)) return NextResponse.json({ message: 'Administrator approval required' }, { status: 403 })
   if (!['Approved', 'Rejected'].includes(body.status)) {
     return NextResponse.json({ message: 'A booking decision is required' }, { status: 400 })
   }

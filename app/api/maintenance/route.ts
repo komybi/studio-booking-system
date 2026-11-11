@@ -3,6 +3,7 @@ import { cookies } from 'next/headers'
 import { ObjectId } from 'mongodb'
 import { getDb } from '@/lib/db'
 import { ensureReservationIndex, getReservationConflicts, reservationSlots, studioNames, timeInMinutes, type ScheduledBooking } from '@/lib/bookingAvailability'
+import { canViewCalendar, isStudioAdmin } from '@/lib/userRoles'
 
 async function currentUser() {
   const token = (await cookies()).get('studioflow_session')?.value
@@ -12,13 +13,10 @@ async function currentUser() {
   return session ? db.collection('users').findOne({ _id: session.userId }) : null
 }
 
-function isAdmin(user: Record<string, unknown>) {
-  return typeof user.role === 'string' && user.role.toLowerCase().startsWith('admin')
-}
-
 export async function GET() {
   const user = await currentUser()
   if (!user) return NextResponse.json({ message: 'Login required' }, { status: 401 })
+  if (!canViewCalendar(user.role)) return NextResponse.json({ maintenance: [] })
   const db = await getDb()
   const maintenance = await db.collection('bookings').find({ recordType: 'maintenance' }).sort({ date: 1 }).limit(300).toArray()
   return NextResponse.json({ maintenance: maintenance.map(({ _id, ...item }) => ({ id: String(_id), ...item })) })
@@ -27,7 +25,7 @@ export async function GET() {
 export async function POST(request: Request) {
   const user = await currentUser()
   if (!user) return NextResponse.json({ message: 'Login required' }, { status: 401 })
-  if (!isAdmin(user)) return NextResponse.json({ message: 'Administrator access required' }, { status: 403 })
+  if (!isStudioAdmin(user.role)) return NextResponse.json({ message: 'Studio Admin access required' }, { status: 403 })
   const body = await request.json().catch(() => null)
   if (!body || typeof body !== 'object') return NextResponse.json({ message: 'Invalid maintenance request' }, { status: 400 })
 
@@ -88,7 +86,7 @@ export async function POST(request: Request) {
 export async function DELETE(request: Request) {
   const user = await currentUser()
   if (!user) return NextResponse.json({ message: 'Login required' }, { status: 401 })
-  if (!isAdmin(user)) return NextResponse.json({ message: 'Administrator access required' }, { status: 403 })
+  if (!isStudioAdmin(user.role)) return NextResponse.json({ message: 'Studio Admin access required' }, { status: 403 })
   const body = await request.json().catch(() => null)
   if (typeof body?.id !== 'string' || !ObjectId.isValid(body.id)) {
     return NextResponse.json({ message: 'A valid maintenance window id is required' }, { status: 400 })
