@@ -252,7 +252,6 @@ export async function POST(request: Request) {
 export async function PATCH(request: Request) {
   const user = await currentUser()
   if (!user) return NextResponse.json({ message: 'Please log in first' }, { status: 401 })
-  if (!isAdmin(user)) return NextResponse.json({ message: 'Administrator approval required' }, { status: 403 })
   const body = await request.json().catch(() => null)
   if (!body || typeof body !== 'object' || Array.isArray(body) || typeof body.id !== 'string' || !ObjectId.isValid(body.id)) {
     return NextResponse.json({ message: 'A valid booking id is required' }, { status: 400 })
@@ -267,6 +266,9 @@ export async function PATCH(request: Request) {
     const bookings = db.collection('bookings')
     const existing = await bookings.findOne({ _id: id, recordType: { $ne: 'maintenance' } })
     if (!existing) return NextResponse.json({ message: 'Booking not found' }, { status: 404 })
+    if (!isAdmin(user) && (existing.requestedBy !== user.username || existing.status !== 'Pending')) {
+      return NextResponse.json({ message: 'You can only edit your own pending booking requests' }, { status: 403 })
+    }
 
     const conflict = await conflictResponse(
       await bookings.find({ date: parsed.booking.date }).toArray() as ScheduledBooking[],
@@ -284,7 +286,12 @@ export async function PATCH(request: Request) {
     }
     try {
       const result = await bookings.updateOne(
-        { _id: id, recordType: { $ne: 'maintenance' }, status: existing.status },
+        {
+          _id: id,
+          recordType: { $ne: 'maintenance' },
+          status: isAdmin(user) ? existing.status : 'Pending',
+          ...(!isAdmin(user) ? { requestedBy: user.username } : {}),
+        },
         { $set: update },
       )
       if (!result.matchedCount) return NextResponse.json({ message: 'This booking changed while you were editing it. Refresh and try again.' }, { status: 409 })
@@ -311,6 +318,7 @@ export async function PATCH(request: Request) {
     return NextResponse.json({ ok: true, booking: { id: body.id, ...existing, ...update } })
   }
 
+  if (!isAdmin(user)) return NextResponse.json({ message: 'Administrator approval required' }, { status: 403 })
   if (!['Approved', 'Rejected'].includes(body.status)) {
     return NextResponse.json({ message: 'A booking decision is required' }, { status: 400 })
   }
