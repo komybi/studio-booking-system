@@ -1,6 +1,13 @@
 import type { ObjectId } from 'mongodb'
 
-export const studioNames = ['Studio A', 'Studio B', 'Studio C', 'Studio D']
+export const studioNames = ['Studio A', 'Studio B', 'Studio C', 'Auditorial', 'Radio Studio 1', 'Radio Studio 2']
+
+export function studioCNewsReservations(date: string): ScheduledBooking[] {
+  return [
+    { id: `news-${date}-midday`, recordType: 'maintenance', date, studio: 'Studio C', startTime: '11:00', endTime: '12:30', status: 'Maintenance', title: 'Reserved news broadcast' },
+    { id: `news-${date}-evening`, recordType: 'maintenance', date, studio: 'Studio C', startTime: '18:00', endTime: '19:30', status: 'Maintenance', title: 'Reserved news broadcast' },
+  ]
+}
 
 export type ScheduledBooking = {
   _id?: ObjectId

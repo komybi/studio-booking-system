@@ -20,8 +20,8 @@ export async function GET() {
     const session = token ? await sessions.findOne({ token, expiresAt: { $gt: new Date() } }) : null
     const currentUser = session ? await users.findOne({ _id: session.userId }) : null
     if (!currentUser || !isSystemAdmin(currentUser.role)) return json('System Admin access required', 403)
-    const registeredUsers = await users.find({}, { projection: { username: 1, email: 1, name: 1, role: 1, createdAt: 1 } }).sort({ createdAt: -1 }).toArray()
-    return NextResponse.json({ users: registeredUsers.map((item) => ({ username: item.username, email: item.email ?? '', name: item.name, role: item.role, roleLabel: appRoleLabel(item.role), status: 'Active' })) })
+    const registeredUsers = await users.find({}, { projection: { username: 1, email: 1, name: 1, role: 1, department: 1, phoneNumber: 1, createdAt: 1 } }).sort({ createdAt: -1 }).toArray()
+    return NextResponse.json({ users: registeredUsers.map((item) => ({ username: item.username, email: item.email ?? '', name: item.name, role: item.role, roleLabel: appRoleLabel(item.role), department: item.department ?? '', phoneNumber: item.phoneNumber ?? '', status: 'Active' })) })
   } catch (error) {
     console.error('[v0] User list request failed', error)
     return json('Unable to load registered users.', 500)
@@ -40,11 +40,15 @@ export async function PATCH(request: Request) {
     const name = String(body.name ?? '').trim()
     const email = String(body.email ?? '').trim().toLowerCase()
     const role = String(body.role ?? '')
+    const department = String(body.department ?? '').trim()
+    const phoneNumber = String(body.phoneNumber ?? '').trim()
     if (!username || !name || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || !appRoles.some((item) => item.value === role)) {
       return json('Enter a valid name, email, and account role.')
     }
+    if (!phoneNumber) return json('A phone number is required.')
+    if (role === 'department_head' && !department) return json('Enter the department for this Department Head.')
     if (role !== 'admin' && username === currentUser.username) return json('You cannot remove your own System Admin access.', 400)
-    const result = await db.collection('users').updateOne({ username }, { $set: { name, email, role } })
+    const result = await db.collection('users').updateOne({ username }, { $set: { name, email, role, department, phoneNumber } })
     if (!result.matchedCount) return json('User not found.', 404)
     return NextResponse.json({ ok: true })
   } catch (error) {
@@ -88,7 +92,7 @@ export async function POST(request: Request) {
     const token = randomBytes(32).toString('hex')
     await sessions.insertOne({ token, userId: user._id, expiresAt: new Date(Date.now() + 1000 * 60 * 60 * 24 * 7) })
     const normalizedRole = normalizeAppRole(user.role)
-    const response = NextResponse.json({ user: { username: user.username, role: normalizedRole, roleLabel: appRoleLabel(user.role), name: user.name } })
+    const response = NextResponse.json({ user: { username: user.username, role: normalizedRole, roleLabel: appRoleLabel(user.role), name: user.name, email: user.email ?? '', department: user.department ?? '', phoneNumber: user.phoneNumber ?? '' } })
     const secureCookie = new URL(request.url).protocol === 'https:'
     response.cookies.set('studioflow_session', token, { httpOnly: true, sameSite: 'lax', secure: secureCookie, maxAge: 60 * 60 * 24 * 7, path: '/' })
     return response
@@ -108,6 +112,8 @@ export async function POST(request: Request) {
     const email = String(body.email ?? '').trim().toLowerCase()
     const name = String(body.name ?? username).trim()
     const requestedRole = appRoles.some((item) => item.value === body.role) ? String(body.role) : 'viewer'
+    const department = String(body.department ?? '').trim()
+    const phoneNumber = String(body.phoneNumber ?? '').trim()
     const cookieStore = await cookies()
     const token = cookieStore.get('studioflow_session')?.value
     const session = token ? await sessions.findOne({ token, expiresAt: { $gt: new Date() } }) : null
@@ -119,12 +125,14 @@ export async function POST(request: Request) {
     }
     if (username.length < 3) return json('Username must be 3+ characters')
     if (!email.includes('@')) return json('A valid email is required')
+    if (!phoneNumber) return json('A phone number is required.')
+    if (requestedRole === 'department_head' && !department) return json('Enter your department.')
     if (await users.findOne({ username })) return json('Username already exists', 409)
     if (await users.findOne({ email })) return json('Email already exists', 409)
 const suppliedPassword = String(body.password ?? '')
   const temporaryPassword = suppliedPassword.length >= 8 ? suppliedPassword : `Studio-${randomBytes(4).toString('hex')}`
   const salt = randomUUID()
-  await users.insertOne({ username, email, name, role: requestedRole, salt, passwordHash: hash(temporaryPassword, salt), mustChangePassword: suppliedPassword.length < 8, createdAt: new Date() })
+  await users.insertOne({ username, email, name, role: requestedRole, department, phoneNumber, salt, passwordHash: hash(temporaryPassword, salt), mustChangePassword: suppliedPassword.length < 8, createdAt: new Date() })
     let emailSent = false
     let emailError = ''
     if (smtpConfigured()) {

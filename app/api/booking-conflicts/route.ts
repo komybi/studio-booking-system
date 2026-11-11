@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
 import { getDb } from '@/lib/db'
-import { findNextAvailableTime, getAvailableStudios, getReservationConflicts, reservationSlots, studioNames, timeInMinutes, type ScheduledBooking } from '@/lib/bookingAvailability'
+import { findNextAvailableTime, getAvailableStudios, getReservationConflicts, reservationSlots, studioCNewsReservations, studioNames, timeInMinutes, type ScheduledBooking } from '@/lib/bookingAvailability'
 import { isStudioAdmin } from '@/lib/userRoles'
 
 async function currentUser() {
@@ -28,7 +28,7 @@ export async function GET(request: Request) {
     return NextResponse.json({ message: 'A valid date, time range, and studio are required' }, { status: 400 })
   }
   const db = await getDb()
-  const records = await db.collection('bookings').find({ date }).toArray() as ScheduledBooking[]
+  const records = [...await db.collection('bookings').find({ date }).toArray() as ScheduledBooking[], ...studioCNewsReservations(date)]
   const conflicts = getReservationConflicts(records, studio, start, end, id)
   const availableStudios = getAvailableStudios(records, studio, start, end)
   const nextAvailableTime = findNextAvailableTime(records, studio, start, end - start)

@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
 import { ObjectId } from 'mongodb'
 import { getDb } from '@/lib/db'
-import { ensureReservationIndex, getReservationConflicts, reservationSlots, studioNames, timeInMinutes, type ScheduledBooking } from '@/lib/bookingAvailability'
+import { ensureReservationIndex, getReservationConflicts, reservationSlots, studioCNewsReservations, studioNames, timeInMinutes, type ScheduledBooking } from '@/lib/bookingAvailability'
 import { canViewCalendar, isStudioAdmin } from '@/lib/userRoles'
 
 async function currentUser() {
@@ -52,7 +52,7 @@ export async function POST(request: Request) {
 
   const db = await getDb()
   await ensureReservationIndex(db)
-  const dayRecords = await db.collection('bookings').find({ date: maintenance.date }).toArray() as ScheduledBooking[]
+  const dayRecords = [...await db.collection('bookings').find({ date: maintenance.date }).toArray() as ScheduledBooking[], ...studioCNewsReservations(maintenance.date)]
   const conflicts = getReservationConflicts(dayRecords, maintenance.studio, start, end)
   if (conflicts.length) {
     return NextResponse.json({

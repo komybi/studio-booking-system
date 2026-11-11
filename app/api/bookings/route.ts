@@ -2,9 +2,9 @@ import { NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
 import { ObjectId } from 'mongodb'
 import { getDb } from '@/lib/db'
-import { ensureReservationIndex, findNextAvailableTime, getAvailableStudios, getReservationConflicts, reservationSlots, studioNames, timeInMinutes, type ScheduledBooking } from '@/lib/bookingAvailability'
+import { ensureReservationIndex, findNextAvailableTime, getAvailableStudios, getReservationConflicts, reservationSlots, studioCNewsReservations, studioNames, timeInMinutes, type ScheduledBooking } from '@/lib/bookingAvailability'
 import { publishBookingNotification } from '@/lib/bookingNotifications'
-import { canViewAllBookings, canViewCalendar, isStudioAdmin } from '@/lib/userRoles'
+import { appRoleLabel, canViewAllBookings, canViewCalendar, isStudioAdmin } from '@/lib/userRoles'
 
 async function currentUser() {
   const token = (await cookies()).get('studioflow_session')?.value
@@ -83,17 +83,18 @@ async function conflictResponse(
   end: number,
   excludeId?: string,
 ) {
-  const conflicts = getReservationConflicts(reservations, booking.studio, start, end, excludeId)
+  const sameDateReservations = [...reservations, ...studioCNewsReservations(booking.date)]
+  const conflicts = getReservationConflicts(sameDateReservations, booking.studio, start, end, excludeId)
   if (!conflicts.length) return null
   const duration = end - start
   const nextTime = findNextAvailableTime(
-    reservations.filter((item) => item.date === booking.date),
+    [...sameDateReservations.filter((item) => item.date === booking.date)],
     booking.studio,
     start,
     duration,
   )
   const availableStudios = getAvailableStudios(
-    reservations.filter((item) => item.date === booking.date),
+    sameDateReservations.filter((item) => item.date === booking.date),
     booking.studio,
     start,
     end,
@@ -122,6 +123,8 @@ type BookingDetails = {
   responsibleEmail: string
   phoneNumber: string
   guest: string
+  guestKnown: boolean
+  guestCount: number
   presenterName: string
   presenterPhone: string
   broadcastType: string
@@ -147,6 +150,8 @@ function parseBookingDetails(body: Record<string, unknown>):
     responsibleEmail: String(body.responsibleEmail ?? '').trim(),
     phoneNumber: String(body.phoneNumber ?? '').trim(),
     guest: String(body.guest ?? '').trim(),
+    guestKnown: body.guestKnown === true,
+    guestCount: Number(body.guestCount),
     presenterName: String(body.presenterName ?? '').trim(),
     presenterPhone: String(body.presenterPhone ?? '').trim(),
     broadcastType: String(body.broadcastType ?? '').trim(),
@@ -160,6 +165,9 @@ function parseBookingDetails(body: Record<string, unknown>):
     return { error: 'Complete all required booking fields with a valid date, time, priority, and studio' }
   }
   if (priority === 'Urgent' && !booking.urgencyReason) return { error: 'A reason is required for urgent bookings' }
+  if (!Number.isSafeInteger(booking.guestCount) || booking.guestCount < 0) return { error: 'Enter a valid guest count of zero or more' }
+  if (booking.guestKnown && !booking.guest) return { error: 'Enter a guest name or mark the guest as unknown' }
+  if (!booking.guestKnown) booking.guest = 'Unknown'
   if (booking.responsibleEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(booking.responsibleEmail)) {
     return { error: 'Enter a valid responsible person email address' }
   }
@@ -190,7 +198,12 @@ export async function POST(request: Request) {
   if (!isStudioAdmin(user.role)) return NextResponse.json({ message: 'Only Studio Admins can create booking requests' }, { status: 403 })
   const body = await request.json().catch(() => null)
   if (!body || typeof body !== 'object' || Array.isArray(body)) return NextResponse.json({ message: 'Invalid booking request' }, { status: 400 })
-  const parsed = parseBookingDetails(body)
+  const parsed = parseBookingDetails({
+    ...body,
+    responsiblePerson: user.name,
+    responsibleEmail: user.email ?? '',
+    phoneNumber: user.phoneNumber ?? '',
+  })
   if ('error' in parsed) return NextResponse.json({ message: parsed.error }, { status: 400 })
   const { booking: details, start, end } = parsed
   const priority = details.priority
@@ -198,6 +211,11 @@ export async function POST(request: Request) {
   await ensureReservationIndex(db)
   const booking = {
     ...details,
+    responsiblePerson: details.responsiblePerson,
+    responsibleEmail: details.responsibleEmail,
+    phoneNumber: details.phoneNumber,
+    requesterRole: String(user.role ?? ''),
+    requesterRoleLabel: appRoleLabel(user.role),
     status: 'Pending',
     requestedBy: user.username,
     requesterName: user.name,
