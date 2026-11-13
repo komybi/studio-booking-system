@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
 import { ObjectId } from 'mongodb'
 import { getDb } from '@/lib/db'
-import { ensureReservationIndex, findNextAvailableTime, getAvailableStudios, getReservationConflicts, reservationSlots, studioCNewsReservations, studioNames, timeInMinutes, type ScheduledBooking } from '@/lib/bookingAvailability'
+import { ensureReservationIndex, findNextAvailableTime, getAvailableStudios, getReservationConflicts, normalizeStudioName, reservationSlots, studioCNewsReservations, studioNames, timeInMinutes, type ScheduledBooking } from '@/lib/bookingAvailability'
 import { publishBookingNotification } from '@/lib/bookingNotifications'
 import { appRoleLabel, canCreateBookingRequest, canViewAllBookings, canViewCalendar, isStudioAdmin } from '@/lib/userRoles'
 
@@ -145,7 +145,7 @@ function parseBookingDetails(body: Record<string, unknown>):
     endTime: String(body.endTime ?? ''),
     priority,
     urgencyReason: priority === 'Urgent' ? String(body.urgencyReason ?? '').trim() : '',
-    studio: String(body.studio ?? '').trim(),
+    studio: normalizeStudioName(String(body.studio ?? '').trim()),
     responsiblePerson: String(body.responsiblePerson ?? '').trim(),
     responsibleEmail: String(body.responsibleEmail ?? '').trim(),
     phoneNumber: String(body.phoneNumber ?? '').trim(),
@@ -188,7 +188,11 @@ export async function GET() {
   const maintenance = canViewCalendar(user.role)
     ? await db.collection('bookings').find({ recordType: 'maintenance' }).sort({ date: 1 }).limit(300).toArray()
     : []
-  const serialize = (records: Record<string, any>[]) => records.map(({ _id, ...record }) => ({ id: String(_id), ...record }))
+  const serialize = (records: Record<string, any>[]) => records.map(({ _id, ...record }) => ({
+    id: String(_id),
+    ...record,
+    ...(typeof record.studio === 'string' ? { studio: normalizeStudioName(record.studio) } : {}),
+  }))
   return NextResponse.json({ bookings: serialize(records), maintenance: serialize(maintenance) })
 }
 
@@ -270,13 +274,130 @@ export async function POST(request: Request) {
 export async function PATCH(request: Request) {
   const user = await currentUser()
   if (!user) return NextResponse.json({ message: 'Please log in first' }, { status: 401 })
-  if (!isStudioAdmin(user.role)) return NextResponse.json({ message: 'Studio Admin access required' }, { status: 403 })
   const body = await request.json().catch(() => null)
   if (!body || typeof body !== 'object' || Array.isArray(body) || typeof body.id !== 'string' || !ObjectId.isValid(body.id)) {
     return NextResponse.json({ message: 'A valid booking id is required' }, { status: 400 })
   }
 
+  if (body.action === 'adjust-schedule') {
+    if (!isStudioAdmin(user.role)) return NextResponse.json({ message: 'Studio Admin access required to adjust booking schedules' }, { status: 403 })
+    const startTime = String(body.startTime ?? '')
+    const endTime = String(body.endTime ?? '')
+    const studio = normalizeStudioName(String(body.studio ?? '').trim())
+    const start = timeInMinutes(startTime)
+    const end = timeInMinutes(endTime)
+    if (start === null || end === null || end <= start) {
+      return NextResponse.json({ message: 'Enter a valid end time after the start time' }, { status: 400 })
+    }
+    if (!studioNames.includes(studio)) return NextResponse.json({ message: 'Choose a valid studio' }, { status: 400 })
+
+    const db = await getDb()
+    await ensureReservationIndex(db)
+    const id = new ObjectId(body.id)
+    const bookings = db.collection('bookings')
+    const existing = await bookings.findOne({ _id: id, recordType: { $ne: 'maintenance' } })
+    if (!existing) return NextResponse.json({ message: 'Booking not found' }, { status: 404 })
+
+    const bookingDate = typeof existing.date === 'string' ? existing.date : ''
+    const parsedBookingDate = /^\d{4}-\d{2}-\d{2}$/.test(bookingDate) ? new Date(`${bookingDate}T00:00:00.000Z`) : null
+    if (!parsedBookingDate || Number.isNaN(parsedBookingDate.getTime()) || parsedBookingDate.toISOString().slice(0, 10) !== bookingDate) {
+      return NextResponse.json({ message: 'This booking has an invalid date and cannot be adjusted' }, { status: 409 })
+    }
+
+    const requestedSchedule = { studio, startTime, endTime }
+    const changedFields = (['studio', 'startTime', 'endTime'] as const).filter((field) => field === 'studio'
+      ? normalizeStudioName(String(existing.studio ?? '')) !== studio
+      : existing[field] !== requestedSchedule[field])
+    if (!changedFields.length) {
+      return NextResponse.json({
+        ok: true,
+        booking: { id: body.id, ...existing, studio: normalizeStudioName(String(existing.studio ?? '')) },
+        notification: { emailStatus: 'skipped', telegramStatus: 'skipped' },
+      })
+    }
+
+    const scheduledBooking = { ...existing, date: bookingDate, studio, startTime, endTime }
+    const conflict = await conflictResponse(
+      await bookings.find({ date: existing.date }).toArray() as ScheduledBooking[],
+      scheduledBooking,
+      start,
+      end,
+      body.id,
+    )
+    if (conflict) return NextResponse.json(conflict, { status: 409 })
+
+    const updatedAt = new Date()
+    const update = {
+      studio,
+      startTime,
+      endTime,
+      reservationSlots: reservationSlots(bookingDate, studio, start, end),
+      updatedAt,
+    }
+    try {
+      const result = await bookings.updateOne(
+        {
+          _id: id,
+          recordType: { $ne: 'maintenance' },
+          status: existing.status,
+          date: existing.date,
+          startTime: existing.startTime,
+          endTime: existing.endTime,
+          studio: existing.studio,
+        },
+        { $set: update },
+      )
+      if (!result.matchedCount) return NextResponse.json({ message: 'This booking changed while you were editing it. Refresh and try again.' }, { status: 409 })
+    } catch (error) {
+      if (!(error && typeof error === 'object' && 'code' in error && error.code === 11000)) throw error
+      const latestConflict = await conflictResponse(
+        await bookings.find({ date: existing.date }).toArray() as ScheduledBooking[],
+        scheduledBooking,
+        start,
+        end,
+        body.id,
+      )
+      return NextResponse.json(latestConflict ?? { message: 'This studio time was just reserved. Please choose another time or studio.' }, { status: 409 })
+    }
+
+    await db.collection('bookingAudit').insertOne({
+      bookingId: body.id,
+      action: 'schedule-adjusted',
+      actor: user.username,
+      changedFields,
+      at: updatedAt,
+    })
+
+    const requesterUsername = typeof existing.requestedBy === 'string' ? existing.requestedBy : ''
+    const requester = requesterUsername && !existing.requesterEmail
+      ? await db.collection('users').findOne({ username: requesterUsername }, { projection: { email: 1 } })
+      : null
+    const notification = requesterUsername
+      ? await publishBookingNotification(db, {
+        eventKey: `booking-rescheduled:${body.id}:${updatedAt.getTime()}`,
+        recipientUsername: requesterUsername,
+        title: 'Booking schedule adjusted',
+        message: `"${existing.title}" is now scheduled for ${existing.date}, ${startTime}-${endTime} in ${studio}.`,
+        bookingId: body.id,
+        href: '/',
+        email: typeof existing.requesterEmail === 'string' && existing.requesterEmail
+          ? existing.requesterEmail
+          : typeof requester?.email === 'string' ? requester.email : undefined,
+        emailSubject: `Booking schedule adjusted: ${existing.title}`,
+        emailText: `"${existing.title}" has been rescheduled to ${existing.date}, ${startTime}-${endTime} in ${studio}.`,
+      })
+      : { emailStatus: 'skipped', telegramStatus: 'skipped' }
+    return NextResponse.json({
+      ok: true,
+      booking: { id: body.id, ...existing, ...update },
+      notification,
+    })
+  }
+
   if (body.action === 'edit') {
+    if (user.role !== 'department_head') {
+      return NextResponse.json({ message: 'Studio Admins can adjust only booking time and studio; Department Heads can edit their own pending requests' }, { status: 403 })
+    }
     const parsed = parseBookingDetails(body)
     if ('error' in parsed) return NextResponse.json({ message: parsed.error }, { status: 400 })
     const db = await getDb()
@@ -285,6 +406,9 @@ export async function PATCH(request: Request) {
     const bookings = db.collection('bookings')
     const existing = await bookings.findOne({ _id: id, recordType: { $ne: 'maintenance' } })
     if (!existing) return NextResponse.json({ message: 'Booking not found' }, { status: 404 })
+    if (!isStudioAdmin(user.role) && (existing.requestedBy !== user.username || existing.status !== 'Pending')) {
+      return NextResponse.json({ message: 'You can only adjust your own pending booking requests' }, { status: 403 })
+    }
     const conflict = await conflictResponse(
       await bookings.find({ date: parsed.booking.date }).toArray() as ScheduledBooking[],
       parsed.booking,
@@ -335,6 +459,7 @@ export async function PATCH(request: Request) {
   if (!['Approved', 'Rejected'].includes(body.status)) {
     return NextResponse.json({ message: 'A booking decision is required' }, { status: 400 })
   }
+  if (!isStudioAdmin(user.role)) return NextResponse.json({ message: 'Studio Admin access required to review bookings' }, { status: 403 })
 
   const db = await getDb()
   await ensureReservationIndex(db)
@@ -366,6 +491,7 @@ export async function PATCH(request: Request) {
   const update: Record<string, unknown> = {
     status: body.status,
     reviewedBy: user.username,
+    reviewedByName: user.name,
     reviewedAt: new Date(),
   }
   if (body.status === 'Approved' && booking.reservationSlots) update.reservationSlots = booking.reservationSlots

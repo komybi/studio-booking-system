@@ -10,13 +10,16 @@ const hash = (value: string, salt: string) => createHash('sha256').update(`${sal
 const json = (message: string, status = 400) => NextResponse.json({ message }, { status })
 const smtpConfigured = () => Boolean(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASSWORD && process.env.MAIL_FROM)
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
     const cookieStore = await cookies()
-    const token = cookieStore.get('studioflow_session')?.value
     const db = await getDb()
     const sessions = db.collection('sessions')
     const users = db.collection('users')
+    if (new URL(request.url).searchParams.get('resource') === 'bootstrap') {
+      return NextResponse.json({ canInitialize: await users.countDocuments() === 0 })
+    }
+    const token = cookieStore.get('studioflow_session')?.value
     const session = token ? await sessions.findOne({ token, expiresAt: { $gt: new Date() } }) : null
     const currentUser = session ? await users.findOne({ _id: session.userId }) : null
     if (!currentUser || !isSystemAdmin(currentUser.role)) return json('System Admin access required', 403)
@@ -119,10 +122,8 @@ export async function POST(request: Request) {
     const session = token ? await sessions.findOne({ token, expiresAt: { $gt: new Date() } }) : null
     const sessionUser = session ? await users.findOne({ _id: session.userId }) : null
     const systemAdmin = Boolean(sessionUser && isSystemAdmin(sessionUser.role))
-    if ((requestedRole === 'admin' || requestedRole === 'studio_admin') && !systemAdmin) {
-      const isFirstSystemAdmin = requestedRole === 'admin' && !sessionUser && await users.countDocuments() === 0
-      if (!isFirstSystemAdmin) return json('Only a System Admin can create privileged accounts.', 403)
-    }
+    const isFirstSystemAdmin = !sessionUser && requestedRole === 'admin' && await users.countDocuments() === 0
+    if (!systemAdmin && !isFirstSystemAdmin) return json('Only a System Admin can create accounts. Initial Admin setup is only available before the first account is created.', 403)
     if (username.length < 3) return json('Username must be 3+ characters')
     if (!email.includes('@')) return json('A valid email is required')
     if (!phoneNumber) return json('A phone number is required.')

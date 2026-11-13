@@ -8,10 +8,10 @@ export const metadata: Metadata = {
   icons: {
     icon: [
       {
-        url: 'https://hebbkx1anhila5yf.public.blob.vercel-storage.com/image-lgoPiCLmam7B4W5ETgBoOkbXLLexGG.png',
+        url: '/ena-logo.png',
       },
     ],
-    apple: 'https://hebbkx1anhila5yf.public.blob.vercel-storage.com/image-lgoPiCLmam7B4W5ETgBoOkbXLLexGG.png',
+    apple: '/ena-logo.png',
   },
 }
 

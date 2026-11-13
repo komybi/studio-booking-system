@@ -1,6 +1,10 @@
 import type { ObjectId } from 'mongodb'
 
-export const studioNames = ['Studio A', 'Studio B', 'Studio C', 'Auditorial', 'Radio Studio 1', 'Radio Studio 2']
+export const studioNames = ['Studio A', 'Studio B', 'Studio C', 'Editorial', 'Radio Studio 1', 'Radio Studio 2', 'Outdoor']
+
+export function normalizeStudioName(studio: string) {
+  return studio === 'Auditorial' ? 'Editorial' : studio
+}
 
 export function studioCNewsReservations(date: string): ScheduledBooking[] {
   return [
@@ -31,7 +35,7 @@ export function formatTime(minutes: number) {
 }
 
 export function reservationSlots(date: string, studio: string, start: number, end: number) {
-  return Array.from({ length: end - start }, (_, minute) => `${date}|${studio}|${start + minute}`)
+  return Array.from({ length: end - start }, (_, minute) => `${date}|${normalizeStudioName(studio)}|${start + minute}`)
 }
 
 export function isBlockingReservation(booking: ScheduledBooking) {
@@ -48,7 +52,7 @@ export function getReservationConflicts(
   excludeId?: string,
 ) {
   return bookings.filter((booking) => {
-    if (booking.studio !== studio || !isBlockingReservation(booking)) return false
+    if (normalizeStudioName(booking.studio ?? '') !== normalizeStudioName(studio) || !isBlockingReservation(booking)) return false
     if (excludeId && String(booking._id ?? booking.id) === excludeId) return false
     const reservedStart = timeInMinutes(booking.startTime ?? '')
     const reservedEnd = timeInMinutes(booking.endTime ?? '')
@@ -58,7 +62,7 @@ export function getReservationConflicts(
 
 export function findNextAvailableTime(bookings: ScheduledBooking[], studio: string, start: number, duration: number) {
   const reservations = bookings
-    .filter((booking) => booking.studio === studio && isBlockingReservation(booking))
+    .filter((booking) => normalizeStudioName(booking.studio ?? '') === normalizeStudioName(studio) && isBlockingReservation(booking))
     .map((booking) => ({ start: timeInMinutes(booking.startTime ?? ''), end: timeInMinutes(booking.endTime ?? '') }))
     .filter((booking): booking is { start: number; end: number } => booking.start !== null && booking.end !== null && booking.end > booking.start)
     .sort((left, right) => left.start - right.start)
@@ -93,7 +97,7 @@ export async function ensureReservationIndex(db: ReservationDatabase) {
         const id = String(record._id ?? record.id ?? '')
         if (!id || !record.date || !record.studio || start === null || end === null || end <= start) continue
         const slots = reservationSlots(record.date, record.studio, start, end)
-        const reservationKey = `${record.date}|${record.studio}`
+        const reservationKey = `${record.date}|${normalizeStudioName(record.studio)}`
         const occupied = reserved.get(reservationKey) ?? new Set<number>()
         const overlaps = Array.from({ length: end - start }, (_, minute) => start + minute).some((minute) => occupied.has(minute))
         if (overlaps) {

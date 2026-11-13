@@ -44,18 +44,28 @@ export async function publishBookingNotification(db: Database, input: Notificati
   }
 
   if (notification) await deliverTelegram(db, dedupeKey, input)
+  notification = await notifications.findOne({ dedupeKey })
 
-  if (!notification || notification.emailStatus !== 'queued') return { created: Boolean(notification), emailStatus: notification?.emailStatus ?? 'unknown' }
+  if (!notification || notification.emailStatus !== 'queued') {
+    return {
+      created: Boolean(notification),
+      emailStatus: notification?.emailStatus ?? 'unknown',
+      telegramStatus: notification?.telegramStatus ?? 'unknown',
+    }
+  }
   if (!input.email || !process.env.SMTP_HOST || !process.env.SMTP_USER || !process.env.SMTP_PASSWORD || !process.env.MAIL_FROM) {
     await notifications.updateOne({ dedupeKey, emailStatus: 'queued' }, { $set: { emailStatus: 'skipped' } })
-    return { created: true, emailStatus: 'skipped' }
+    return { created: true, emailStatus: 'skipped', telegramStatus: notification.telegramStatus ?? 'unknown' }
   }
 
   const claim = await notifications.updateOne(
     { dedupeKey, emailStatus: 'queued' },
     { $set: { emailStatus: 'sending', emailClaimedAt: new Date() } },
   )
-  if (!claim.modifiedCount) return { created: true, emailStatus: 'sending' }
+  if (!claim.modifiedCount) {
+    const latest = await notifications.findOne({ dedupeKey })
+    return { created: true, emailStatus: latest?.emailStatus ?? 'sending', telegramStatus: latest?.telegramStatus ?? 'unknown' }
+  }
 
   const port = Number(process.env.SMTP_PORT || 587)
   const transporter = nodemailer.createTransport({
@@ -73,11 +83,11 @@ export async function publishBookingNotification(db: Database, input: Notificati
       text: input.emailText,
     })
     await notifications.updateOne({ dedupeKey, emailStatus: 'sending' }, { $set: { emailStatus: 'sent', emailSentAt: new Date() } })
-    return { created: true, emailStatus: 'sent' }
+    return { created: true, emailStatus: 'sent', telegramStatus: notification.telegramStatus ?? 'unknown' }
   } catch (error) {
     console.error('[booking-notifications] Email delivery failed', error)
     await notifications.updateOne({ dedupeKey, emailStatus: 'sending' }, { $set: { emailStatus: 'failed', emailFailedAt: new Date() } })
-    return { created: true, emailStatus: 'failed' }
+    return { created: true, emailStatus: 'failed', telegramStatus: notification.telegramStatus ?? 'unknown' }
   }
 }
 
