@@ -22,8 +22,6 @@ type BookingReportRow = {
   presenterName?: string
   presenterPhone?: string
   broadcastType?: string
-  equipment?: string
-  notes?: string
   createdAt?: string | Date
   reviewedBy?: string
   reviewedByName?: string
@@ -50,9 +48,7 @@ const columns: { label: string; width: number; value: (booking: BookingReportRow
   { label: 'Guest / count', width: 1, value: (booking) => [booking.guest, booking.guestCount === undefined ? '' : `Count: ${booking.guestCount}`].filter(Boolean).join(' / ') || '—' },
   { label: 'Presenter / phone', width: 1.2, value: (booking) => [booking.presenterName, booking.presenterPhone].filter(Boolean).join(' / ') || '—' },
   { label: 'Broadcast type', width: 1, value: (booking) => booking.broadcastType || '—' },
-  { label: 'Equipment', width: 1.2, value: (booking) => booking.equipment || '—' },
   { label: 'Urgency reason', width: 1.4, value: (booking) => booking.urgencyReason || '—' },
-  { label: 'Notes', width: 1.6, value: (booking) => booking.notes || '—' },
 ]
 
 export function downloadMonthlyBookingReportPdf({

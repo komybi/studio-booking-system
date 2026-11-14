@@ -469,7 +469,7 @@ body.standard-user-view .side-nav > button:last-of-type { display: flex !importa
 .report-toolbar { justify-content: space-between; }
 .report-month-picker strong { min-width: 140px; text-align: center; color: var(--navy); font-size: 14px; }
 .monthly-request-list { max-width: 100%; overflow-x: auto; }
-.report-booking-table { width: 100%; min-width: 2400px; border-collapse: collapse; text-align: left; }
+.report-booking-table { width: 100%; min-width: 2100px; border-collapse: collapse; text-align: left; }
 .report-booking-table .visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; clip-path: inset(50%); }
 .report-booking-table thead th { padding: 12px; background: var(--soft); color: #738094; font-size: 10px; text-transform: uppercase; letter-spacing: .05em; }
 .report-booking-table tbody td { max-width: 240px; padding: 12px; border-top: 1px solid var(--line); background: #fff; font-size: 12px; vertical-align: top; overflow-wrap: anywhere; }
@@ -482,6 +482,12 @@ body.standard-user-view .side-nav > button:last-of-type { display: flex !importa
 .report-booking-status.rejected { background: #fff0ed; color: #c1493c; }
 .status-badge, .report-booking-status, .booking-action-button { white-space: nowrap; }
 .booking-action-button { flex: 0 0 auto; }
+.booking-action-call { display: none; }
+.department-add-form { display: flex; align-items: flex-end; gap: 12px; max-width: 620px; margin: 0 0 22px; }
+.department-add-form label { display: grid; flex: 1; gap: 7px; color: var(--ink); font-size: 12px; font-weight: 700; }
+.department-add-form input { width: 100%; min-height: 42px; padding: 0 12px; border: 1px solid #d3dce4; border-radius: 9px; color: var(--ink); background: #fff; }
+.department-form-message { max-width: 620px; margin: -10px 0 16px; color: #b42318; font-size: 12px; }
+.department-table { min-width: 0; max-width: 620px; }
 .success-modal { width: min(440px, 100%); }
 .success-modal-content { display: flex; align-items: center; gap: 14px; padding: 18px 4px; }
 .success-modal-content p { margin: 0; color: var(--ink); font-size: 14px; line-height: 1.5; }
@@ -544,6 +550,10 @@ body.standard-user-view .side-nav > button:last-of-type { display: flex !importa
   .brand { flex-direction: row; }
   .brand-copy { display: none; }
   .booking-detail-grid { grid-template-columns: minmax(0, 1fr); }
+  .booking-phone-detail { display: none; }
+  .booking-action-call { display: inline-flex; }
+  .department-add-form { align-items: stretch; flex-direction: column; }
+  .department-add-form .primary-button { justify-content: center; }
 }
 
 @media (max-width: 520px) {
