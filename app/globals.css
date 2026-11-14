@@ -488,6 +488,10 @@ body.standard-user-view .side-nav > button:last-of-type { display: flex !importa
 .department-add-form input { width: 100%; min-height: 42px; padding: 0 12px; border: 1px solid #d3dce4; border-radius: 9px; color: var(--ink); background: #fff; }
 .department-form-message { max-width: 620px; margin: -10px 0 16px; color: #b42318; font-size: 12px; }
 .department-table { min-width: 0; max-width: 620px; }
+.user-detail-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 18px; margin: 0; }
+.user-detail-list > div { min-width: 0; padding: 11px 2px; border-bottom: 1px solid #edf0f3; }
+.user-detail-list dt { margin-bottom: 5px; color: #8994a3; font-size: 10px; font-weight: 700; }
+.user-detail-list dd { margin: 0; color: var(--ink); font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
 .success-modal { width: min(440px, 100%); }
 .success-modal-content { display: flex; align-items: center; gap: 14px; padding: 18px 4px; }
 .success-modal-content p { margin: 0; color: var(--ink); font-size: 14px; line-height: 1.5; }
